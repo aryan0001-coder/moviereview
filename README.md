@@ -85,10 +85,8 @@ GET /reviews/movie/:movieId - Get reviews by movie
 GET /reviews/user/:userId - Get reviews by user
 GET /reviews/my-reviews - Get current user's reviews
 POST /reviews - Create a review
-PUT /reviews/:id -
-
-    Update review (Owner or Admin)
-    DELETE /reviews/:id - Delete review (Owner or Admin)
+PUT /reviews/:id -Update review (Owner or Admin)
+DELETE /reviews/:id - Delete review (Owner or Admin)
 
 
 
