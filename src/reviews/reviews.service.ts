@@ -98,12 +98,10 @@ export class ReviewsService {
   ): Promise<PopulatedReviewDocument> {
     const review = await this.findById(id);
 
-    // Type-safe way to get the ObjectId
     const reviewUserId = new Types.ObjectId(
       (review.user as unknown as { _id: Types.ObjectId })._id,
     );
 
-    // Compare ObjectIds properly
     if (
       !reviewUserId.equals(new Types.ObjectId(userId)) &&
       userRole !== UserRole.ADMIN
@@ -137,12 +135,10 @@ export class ReviewsService {
   async remove(id: string, userId: string, userRole: UserRole): Promise<void> {
     const review = await this.findById(id);
 
-    // Type-safe way to get the ObjectId
     const reviewUserId = new Types.ObjectId(
       (review.user as unknown as { _id: Types.ObjectId })._id,
     );
 
-    // Compare ObjectIds properly
     if (
       !reviewUserId.equals(new Types.ObjectId(userId)) &&
       userRole !== UserRole.ADMIN
