@@ -55,6 +55,43 @@ $ npm run test:e2e
 
 # test coverage
 $ npm run test:cov
+
+
+#API Endpoints
+#Authentication
+
+    POST /auth/register - Register a new user
+    POST /auth/login - Login and get JWT token
+
+#Users
+
+    GET /users - Get all users (Admin)
+    GET /users/:id - Get user by ID
+    PUT /users/:id - Update user (Admin)
+    DELETE /users/:id - Delete user (Admin)
+
+#Movies
+
+    GET /movies - Get all movies
+    GET /movies/:id - Get movie by ID
+    POST /movies - Create a movie (Admin)
+    PUT /movies/:id - Update movie (Admin)
+    DELETE /movies/:id - Delete movie (Admin)
+
+#Reviews
+GET /reviews - Get all reviews
+GET /reviews/:id - Get review by ID
+GET /reviews/movie/:movieId - Get reviews by movie
+GET /reviews/user/:userId - Get reviews by user
+GET /reviews/my-reviews - Get current user's reviews
+POST /reviews - Create a review
+PUT /reviews/:id -
+
+    Update review (Owner or Admin)
+    DELETE /reviews/:id - Delete review (Owner or Admin)
+
+
+
 ```
 
 ## Deployment
