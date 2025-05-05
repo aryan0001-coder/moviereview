@@ -1,16 +1,15 @@
-import { Schema, Prop, SchemaFactory } from '@nestjs/mongoose';
-import { Document } from 'mongoose';
-import { Role } from 'src/common/enums/role.enum';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { Document, Types } from 'mongoose';
 
-export type UserDocument = User & Document;
+export enum UserRole {
+  USER = 'user',
+  ADMIN = 'admin',
+}
 
-@Schema()
+@Schema({ timestamps: true })
 export class User {
-  toObject(): { [x: string]: any; password: any; } {
-    throw new Error('Method not implemented.');
-  }
   @Prop({ required: true })
-  username: string;
+  name: string;
 
   @Prop({ required: true, unique: true })
   email: string;
@@ -18,11 +17,18 @@ export class User {
   @Prop({ required: true })
   password: string;
 
-  @Prop({ default: false })
-  isAdmin: boolean;
-
-  @Prop({ type: [String], enum: Role, default: [Role.USER] })
-  roles: Role[];
+  @Prop({ type: String, enum: UserRole, default: UserRole.USER })
+  role: UserRole;
 }
+
+export type UserDocument = User &
+  Document<{
+    equals(arg0: Types.ObjectId): unknown;
+    _id: Types.ObjectId;
+    name: string;
+    email: string;
+    password: string;
+    role: UserRole;
+  }>;
 
 export const UserSchema = SchemaFactory.createForClass(User);

@@ -4,7 +4,6 @@ import { Model } from 'mongoose';
 import { Movie, MovieDocument } from './schemas/movie.schema';
 import { CreateMovieDto } from './dto/create-movie.dto';
 import { UpdateMovieDto } from './dto/update-movie.dto';
-import { QueryMoviesDto } from './dto/query-movies.dto';
 
 @Injectable()
 export class MoviesService {
@@ -12,38 +11,16 @@ export class MoviesService {
     @InjectModel(Movie.name) private movieModel: Model<MovieDocument>,
   ) {}
 
-  async create(createMovieDto: CreateMovieDto): Promise<Movie> {
-    const movie = new this.movieModel(createMovieDto);
-    return movie.save();
+  async create(createMovieDto: CreateMovieDto): Promise<MovieDocument> {
+    const newMovie = new this.movieModel(createMovieDto);
+    return newMovie.save();
   }
 
-  async findAll(queryDto: QueryMoviesDto): Promise<Movie[]> {
-    const { title, genre, year, sortBy, sortOrder, page = 1, limit = 10 } = queryDto;
-    const query = this.movieModel.find();
-
-    if (title) {
-      query.where('title', new RegExp(title, 'i'));
-    }
-
-    if (genre) {
-      query.where('genres', genre);
-    }
-
-    if (year) {
-      query.where('releaseYear', year);
-    }
-
-    if (sortBy) {
-      query.sort({ [sortBy]: sortOrder || 'desc' });
-    }
-
-    return query
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .exec();
+  async findAll(): Promise<MovieDocument[]> {
+    return this.movieModel.find().exec();
   }
 
-  async findOne(id: string): Promise<Movie> {
+  async findById(id: string): Promise<MovieDocument> {
     const movie = await this.movieModel.findById(id).exec();
     if (!movie) {
       throw new NotFoundException(`Movie with ID ${id} not found`);
@@ -51,14 +28,19 @@ export class MoviesService {
     return movie;
   }
 
-  async update(id: string, updateMovieDto: UpdateMovieDto): Promise<Movie> {
-    const movie = await this.movieModel
+  async update(
+    id: string,
+    updateMovieDto: UpdateMovieDto,
+  ): Promise<MovieDocument> {
+    const updatedMovie = await this.movieModel
       .findByIdAndUpdate(id, updateMovieDto, { new: true })
       .exec();
-    if (!movie) {
+
+    if (!updatedMovie) {
       throw new NotFoundException(`Movie with ID ${id} not found`);
     }
-    return movie;
+
+    return updatedMovie;
   }
 
   async remove(id: string): Promise<void> {
@@ -68,17 +50,60 @@ export class MoviesService {
     }
   }
 
-  async updateRating(movieId: string, rating: number): Promise<void> {
-    const movie = await this.movieModel.findById(movieId);
-    if (!movie) {
-      throw new NotFoundException(`Movie with ID ${movieId} not found`);
+  async updateMovieRatings(
+    movieId: string,
+    newRating: number,
+    oldRating?: number,
+  ): Promise<void> {
+    const movie = await this.findById(movieId);
+
+    if (oldRating !== undefined) {
+      const totalRating = movie.averageRating * movie.reviewCount;
+      const updatedTotalRating = totalRating - oldRating + newRating;
+      const updatedAverageRating =
+        movie.reviewCount > 0 ? updatedTotalRating / movie.reviewCount : 0;
+
+      await this.movieModel.updateOne(
+        { _id: movieId },
+        { averageRating: parseFloat(updatedAverageRating.toFixed(1)) },
+      );
+    } else {
+      const totalRating = movie.averageRating * movie.reviewCount + newRating;
+      const newCount = movie.reviewCount + 1;
+      const updatedAverageRating = totalRating / newCount;
+
+      await this.movieModel.updateOne(
+        { _id: movieId },
+        {
+          averageRating: parseFloat(updatedAverageRating.toFixed(1)),
+          reviewCount: newCount,
+        },
+      );
     }
-    const newCount = movie.reviewCount + 1;
-    const newAverage = ((movie.averageRating * movie.reviewCount) + rating) / newCount;
-    
-    await this.movieModel.findByIdAndUpdate(movieId, {
-      averageRating: newAverage,
-      reviewCount: newCount,
-    });
+  }
+
+  async decrementReviewCount(movieId: string, rating: number): Promise<void> {
+    const movie = await this.findById(movieId);
+
+    if (movie.reviewCount <= 1) {
+      await this.movieModel.updateOne(
+        { _id: movieId },
+        { averageRating: 0, reviewCount: 0 },
+      );
+      return;
+    }
+
+    const totalRating = movie.averageRating * movie.reviewCount;
+    const updatedTotalRating = totalRating - rating;
+    const newCount = movie.reviewCount - 1;
+    const updatedAverageRating = updatedTotalRating / newCount;
+
+    await this.movieModel.updateOne(
+      { _id: movieId },
+      {
+        averageRating: parseFloat(updatedAverageRating.toFixed(1)),
+        reviewCount: newCount,
+      },
+    );
   }
 }

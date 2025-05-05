@@ -1,96 +1,165 @@
-import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+  Inject,
+  forwardRef,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { Review, ReviewDocument } from './schemas/review.schema';
-import { MoviesService } from '../movies/movies.service';
+import { Model, Types } from 'mongoose';
+import {
+  Review,
+  ReviewDocument,
+  PopulatedReviewDocument,
+} from './schemas/review.schema';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewDto } from './dto/update-review.dto';
-import { QueryReviewsDto } from './dto/query-reviews.dto';
+import { MoviesService } from '../movies/movies.service';
+import { UserRole } from '../users/schemas/user.schema';
 
 @Injectable()
 export class ReviewsService {
   constructor(
     @InjectModel(Review.name) private reviewModel: Model<ReviewDocument>,
+    @Inject(forwardRef(() => MoviesService))
     private moviesService: MoviesService,
   ) {}
 
-  async create(createReviewDto: CreateReviewDto, user: any): Promise<Review> {
-    await this.moviesService.findOne(createReviewDto.movieId);
-    
-    const review = new this.reviewModel({
-      ...createReviewDto,
-      userId: user.userId,
-    });
-    
-    await this.moviesService.updateRating(createReviewDto.movieId, createReviewDto.rating);
-    return review.save();
-  }
+  async create(
+    userId: string,
+    createReviewDto: CreateReviewDto,
+  ): Promise<ReviewDocument> {
+    const { movieId, ...reviewData } = createReviewDto;
 
-  async findAll(queryDto: QueryReviewsDto): Promise<{ data: Review[]; total: number }> {
-    const { userId, movieId, page = 1, limit = 10 } = queryDto;
-    const query = this.reviewModel.find();
-
-    if (userId) {
-      query.where('userId', userId);
-    }
-
-    if (movieId) {
-      query.where('movieId', movieId);
-    }
-
-    const total = await this.reviewModel.countDocuments(query.getQuery());
-    const data = await query
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .populate('userId', 'username')
-      .populate('movieId', 'title')
+    const existingReview = await this.reviewModel
+      .findOne({
+        user: new Types.ObjectId(userId),
+        movie: new Types.ObjectId(movieId),
+      })
       .exec();
 
-    return { data, total };
+    if (existingReview) {
+      throw new ForbiddenException('You have already reviewed this movie');
+    }
+
+    await this.moviesService.findById(movieId);
+
+    const newReview = new this.reviewModel({
+      ...reviewData,
+      user: new Types.ObjectId(userId),
+      movie: new Types.ObjectId(movieId),
+    });
+
+    const savedReview = await newReview.save();
+
+    await this.moviesService.updateMovieRatings(movieId, reviewData.rating);
+
+    return savedReview;
   }
 
-  async findOne(id: string): Promise<Review> {
+  async findAll(): Promise<PopulatedReviewDocument[]> {
+    return this.reviewModel
+      .find()
+      .populate('user', 'name email')
+      .populate('movie', 'title director releaseYear')
+      .exec() as Promise<PopulatedReviewDocument[]>;
+  }
+
+  async findById(id: string): Promise<PopulatedReviewDocument> {
     const review = await this.reviewModel
       .findById(id)
-      .populate('userId', 'username')
-      .populate('movieId', 'title')
+      .populate('user', 'name email')
+      .populate('movie', 'title director releaseYear')
+      .orFail(new NotFoundException(`Review with ID ${id} not found`))
       .exec();
-      
-    if (!review) {
-      throw new NotFoundException(`Review with ID ${id} not found`);
-    }
-    return review;
+
+    return review as PopulatedReviewDocument;
   }
 
-  async update(id: string, updateReviewDto: UpdateReviewDto, user: any): Promise<Review|null> {
-    const review = await this.reviewModel.findById(id);
-    
-    if (!review) {
-      throw new NotFoundException(`Review with ID ${id} not found`);
-    }
-    
-    if (review.userId.toString() !== user.userId) {
-      throw new UnauthorizedException('You can only update your own reviews');
-    }
-
+  async findByMovie(movieId: string): Promise<PopulatedReviewDocument[]> {
     return this.reviewModel
-      .findByIdAndUpdate(id, updateReviewDto, { new: true })
-      .populate('userId', 'username')
-      .populate('movieId', 'title')
-      .exec();
+      .find({ movie: new Types.ObjectId(movieId) })
+      .populate('user', 'name email')
+      .exec() as Promise<PopulatedReviewDocument[]>;
   }
 
-  async remove(id: string, user: any): Promise<void> {
-    const review = await this.reviewModel.findById(id);
-    
-    if (!review) {
-      throw new NotFoundException(`Review with ID ${id} not found`);
-    }
-    
-    if (review.userId.toString() !== user.userId) {
-      throw new UnauthorizedException('You can only delete your own reviews');
+  async findByUser(userId: string): Promise<PopulatedReviewDocument[]> {
+    return this.reviewModel
+      .find({ user: new Types.ObjectId(userId) })
+      .populate('movie', 'title director releaseYear')
+      .exec() as Promise<PopulatedReviewDocument[]>;
+  }
+
+  async update(
+    id: string,
+    userId: string,
+    userRole: UserRole,
+    updateReviewDto: UpdateReviewDto,
+  ): Promise<PopulatedReviewDocument> {
+    const review = await this.findById(id);
+
+    // Type-safe way to get the ObjectId
+    const reviewUserId = new Types.ObjectId(
+      (review.user as unknown as { _id: Types.ObjectId })._id,
+    );
+
+    // Compare ObjectIds properly
+    if (
+      !reviewUserId.equals(new Types.ObjectId(userId)) &&
+      userRole !== UserRole.ADMIN
+    ) {
+      throw new ForbiddenException('You cannot update this review');
     }
 
-    await this.reviewModel.deleteOne({ _id: id });
+    const oldRating = review.rating;
+    const updatedReview = await this.reviewModel
+      .findByIdAndUpdate(
+        id,
+        { ...updateReviewDto, isEdited: true },
+        { new: true },
+      )
+      .populate('user', 'name email')
+      .populate('movie', 'title director releaseYear')
+      .exec();
+
+    if (updateReviewDto.rating && updateReviewDto.rating !== oldRating) {
+      const reviewMovie = review.movie;
+      await this.moviesService.updateMovieRatings(
+        reviewMovie._id.toString(),
+        updateReviewDto.rating,
+        oldRating,
+      );
+    }
+
+    return updatedReview as PopulatedReviewDocument;
+  }
+
+  async remove(id: string, userId: string, userRole: UserRole): Promise<void> {
+    const review = await this.findById(id);
+
+    // Type-safe way to get the ObjectId
+    const reviewUserId = new Types.ObjectId(
+      (review.user as unknown as { _id: Types.ObjectId })._id,
+    );
+
+    // Compare ObjectIds properly
+    if (
+      !reviewUserId.equals(new Types.ObjectId(userId)) &&
+      userRole !== UserRole.ADMIN
+    ) {
+      throw new ForbiddenException('You cannot delete this review');
+    }
+
+    const result = await this.reviewModel.deleteOne({ _id: id }).exec();
+
+    if (result.deletedCount === 0) {
+      throw new NotFoundException(`Review with ID ${id} not found`);
+    }
+
+    const reviewMovie = review.movie;
+    await this.moviesService.decrementReviewCount(
+      reviewMovie._id.toString(),
+      review.rating,
+    );
   }
 }
